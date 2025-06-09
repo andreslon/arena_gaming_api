@@ -50,11 +50,5 @@ app.UseCors("AllowAll");
 app.UseAuthorization();
 app.MapControllers();
 
-// Apply database migrations
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    dbContext.Database.Migrate();
-
-    app.Run();
-}
+// Note: Database migrations are now handled automatically by StartupHealthCheckService
+app.Run();

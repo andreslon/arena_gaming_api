@@ -32,8 +32,8 @@ public class StartupHealthCheckService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait a bit for the application to fully start
-        await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
+        // Wait a bit for the application to fully start and services to initialize
+        await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
 
         _logger.LogInformation("🚀 Starting automatic health checks for all services...");
         
@@ -89,7 +89,7 @@ public class StartupHealthCheckService : BackgroundService
             await dbContext.Database.OpenConnectionAsync();
             result.Details.Add("Connection", "✅ Successful");
 
-            // Test migration status
+            // Test migration status and apply if needed
             var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
             if (!pendingMigrations.Any())
             {
@@ -97,14 +97,20 @@ public class StartupHealthCheckService : BackgroundService
             }
             else
             {
-                result.Details.Add("Migrations", $"⚠️ {pendingMigrations.Count()} pending");
-                result.Warnings.Add($"Pending migrations: {string.Join(", ", pendingMigrations)}");
+                result.Details.Add("Migrations", $"⚠️ {pendingMigrations.Count()} pending - Applying now...");
+                result.Warnings.Add($"Auto-applying migrations: {string.Join(", ", pendingMigrations)}");
+                
+                // Apply pending migrations
+                await dbContext.Database.MigrateAsync();
+                result.Details["Migrations"] = "✅ Applied automatically";
             }
 
-            // Test basic query
+            // Test basic query (now should work after migrations)
             var gameCount = await dbContext.Games.CountAsync();
             var sessionCount = await dbContext.Sessions.CountAsync();
-            result.Details.Add("Data Access", $"✅ Games: {gameCount}, Sessions: {sessionCount}");
+            var notificationCount = await dbContext.Notifications.CountAsync();
+            var preferencesCount = await dbContext.NotificationPreferences.CountAsync();
+            result.Details.Add("Data Access", $"✅ Games: {gameCount}, Sessions: {sessionCount}, Notifications: {notificationCount}, Preferences: {preferencesCount}");
 
             // Test a write operation (create and delete a test session)
             var testSession = new Session(Guid.NewGuid());

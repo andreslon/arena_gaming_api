@@ -168,7 +168,7 @@ namespace ArenaGaming.Api.Controllers
                 healthCheck.Message = $"Database connection successful. Games count: {gameCount}";
                 healthCheck.Details = new Dictionary<string, object>
                 {
-                    ["ConnectionState"] = _dbContext.Database.GetConnectionString(),
+                    ["ConnectionState"] = _dbContext.Database.GetConnectionString() ?? "Not available",
                     ["GamesCount"] = gameCount,
                     ["ResponseTimeMs"] = stopwatch.ElapsedMilliseconds
                 };
