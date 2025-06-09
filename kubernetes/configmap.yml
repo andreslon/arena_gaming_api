@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "#{APP_NAME}#"
+  namespace: "#{AKS_NAMESPACE}#"
+  labels:
+    app: "#{APP_NAME}#"
+data:
+  ASPNETCORE_ENVIRONMENT: "#{ASPNETCORE_ENVIRONMENT}#"
+  ConnectionStrings_DefaultConnection: "#{ConnectionStrings_DefaultConnection}#"
+  ConnectionStrings_Redis: "#{ConnectionStrings_Redis}#"
+  Gemini_ApiKey: "#{Gemini_ApiKey}#"
+  Pulsar_Tenant: "#{Pulsar_Tenant}#"
+  Pulsar_Namespace: "#{Pulsar_Namespace}#"
+  ConnectionStrings_Pulsar: "#{ConnectionStrings_Pulsar}#"

@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: 
+  labels: 
+    app: "#{APP_NAME}#"
+  name: "#{APP_NAME}#"
+  namespace: "#{AKS_NAMESPACE}#"
+spec: 
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector: 
+    matchLabels: 
+      app: "#{APP_NAME}#"
+  template:
+    metadata:
+      labels:
+        app: "#{APP_NAME}#"
+    spec: 
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      containers: 
+        - image: "#{ACR_REGISTRY}#/#{APP_NAME}#:#{IMAGE_TAG}#"
+          imagePullPolicy: Always
+          envFrom:
+          - configMapRef:
+              name: "#{APP_NAME}#"
+          name: "#{APP_NAME}#"
+          ports: 
+            - containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              memory: 200Mi
+              cpu: 50m
+            limits:
+              memory: 512Mi
+              cpu: 100m

@@ -1,0 +1,107 @@
+name: API CI - CD
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Manual workflow dispatch'
+        required: true
+        default: 'Reason to run the workflow'
+
+env:
+  ACTIONS_STEP_DEBUG: true
+  IMAGE_TAG: ${{ github.sha }}
+  APP_NAME: ${{ vars.APP_NAME }}
+  AKS_NAMESPACE: ${{ vars.AKS_NAMESPACE }}
+  ACR_REGISTRY_RG: ${{ vars.ACR_REGISTRY_RG }}
+  ACR_REGISTRY_NAME: ${{ vars.ACR_REGISTRY }}
+  ACR_REGISTRY: ${{ vars.ACR_REGISTRY }}.azurecr.io
+  AKS_CLUSTER_RG: ${{ vars.AKS_CLUSTER_RG }}
+  AKS_CLUSTER_NAME: ${{ vars.AKS_CLUSTER_NAME }}
+  
+  ASPNETCORE_ENVIRONMENT: "Development"
+  ConnectionStrings_DefaultConnection: ${{ secrets.ConnectionStrings_DefaultConnection }}
+  ConnectionStrings_Redis: ${{ secrets.ConnectionStrings_Redis }}
+  Gemini_ApiKey: ${{ secrets.Gemini_ApiKey }}
+  Pulsar_Tenant: ${{ secrets.Pulsar_Tenant }}
+  Pulsar_Namespace: ${{ secrets.Pulsar_Namespace }}
+  ConnectionStrings_Pulsar: ${{ secrets.ConnectionStrings_Pulsar }}
+  
+jobs:
+  buildImage:
+    environment: ${{ github.ref_name }}
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      # Checks out the repository this file is in
+      - uses: actions/checkout@v4
+
+      # Logs in with your Azure credentials
+      - name: Azure login
+        uses: azure/login@v1.4.6
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Builds and pushes an image up to your Azure Container Registry
+      - name: Build and push image to ACR
+        run: |
+          az acr build --image ${{ env.ACR_REGISTRY }}/${{ env.APP_NAME }}:${{ env.IMAGE_TAG }} --registry ${{ env.ACR_REGISTRY_NAME }} -g ${{ env.ACR_REGISTRY_RG }} .
+      
+  deploy:
+    environment: ${{ github.ref_name }}
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    needs: [buildImage]
+    steps:
+      # Checks out the repository this file is in
+      - uses: actions/checkout@v4
+
+      - name: Replace tokens
+        uses: cschleiden/replace-tokens@v1.2
+        with:
+          files: '["kubernetes/*.yml"]'
+
+      # Logs in with your Azure credentials
+      - name: Azure login
+        uses: azure/login@v1.4.6
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # Use kubelogin to configure your kubeconfig for Azure auth
+      - name: Set up kubelogin for non-interactive login
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: 'v0.0.25'
+
+      # Retrieves your Azure Kubernetes Service cluster's kubeconfig file
+      - name: Get K8s context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ env.AKS_CLUSTER_RG }}
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+          admin: 'false'
+          use-kubelogin: 'true'
+
+      # Apply each manifest file individually
+      - name: Apply ConfigMap
+        run: |
+          kubectl apply -f kubernetes/configmap.yml
+      
+      - name: Apply Deployment
+        run: |
+          kubectl apply -f kubernetes/deployment.yml
+      
+      - name: Apply Service
+        run: |
+          kubectl apply -f kubernetes/service.yml
