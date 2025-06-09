@@ -16,8 +16,22 @@ builder.Services.AddControllers()
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerDocumentation();
 
+// Configure CORS for WebSocket connections
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll", policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
+
 // Add infrastructure services
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Add Pulsar and notification services
+builder.Services.AddPulsarServices(builder.Configuration);
 
 var app = builder.Build();
 
@@ -28,6 +42,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseCors("AllowAll");
 app.UseAuthorization();
 app.MapControllers();
 
