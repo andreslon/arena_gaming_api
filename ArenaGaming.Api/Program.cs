@@ -33,6 +33,10 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // Add Pulsar and notification services
 builder.Services.AddPulsarServices(builder.Configuration);
 
+// Add health check services
+builder.Services.AddSingleton<ArenaGaming.Api.Services.IHealthCheckResultsService, ArenaGaming.Api.Services.HealthCheckResultsService>();
+builder.Services.AddHostedService<ArenaGaming.Api.Services.StartupHealthCheckService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
