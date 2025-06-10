@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace ArenaGaming.Core.Domain.Common;
 
@@ -7,6 +8,9 @@ public abstract class Entity
     public Guid Id { get; protected set; }
     public DateTime CreatedAt { get; protected set; }
     public DateTime? UpdatedAt { get; protected set; }
+    
+    [Timestamp]
+    public byte[]? RowVersion { get; set; }
 
     protected Entity()
     {

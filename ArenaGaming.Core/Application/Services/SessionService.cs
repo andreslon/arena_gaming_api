@@ -175,6 +175,7 @@ public class SessionService
         if (!session.CurrentGameId.HasValue)
             throw new InvalidOperationException("No active game in session");
 
+        // Get fresh game data directly from database to avoid concurrency issues
         var game = await _gameRepository.GetByIdAsync(session.CurrentGameId.Value, cancellationToken);
         if (game == null)
             throw new ArgumentException("Game not found", nameof(session.CurrentGameId));

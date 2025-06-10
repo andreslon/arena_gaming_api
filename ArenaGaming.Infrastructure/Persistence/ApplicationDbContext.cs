@@ -29,6 +29,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.CurrentPlayerSymbol).IsRequired();
             entity.Property(e => e.PlayerId).IsRequired();
             entity.Property(e => e.EndedAt);
+            entity.Property(e => e.RowVersion).IsRowVersion();
         });
 
         modelBuilder.Entity<Move>(entity =>
@@ -38,6 +39,7 @@ public class ApplicationDbContext : DbContext
             entity.Property(e => e.Position).IsRequired();
             entity.Property(e => e.Symbol).IsRequired();
             entity.Property(e => e.Timestamp).IsRequired();
+            entity.Property(e => e.RowVersion).IsRowVersion();
         });
 
         modelBuilder.Entity<Session>(entity =>
@@ -45,6 +47,7 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.PlayerId).IsRequired();
             entity.Property(e => e.CreatedAt).IsRequired();
+            entity.Property(e => e.RowVersion).IsRowVersion();
         });
 
         modelBuilder.Entity<Notification>(entity =>

@@ -39,28 +39,76 @@ public class GameService
 
     public async Task<Game> MakeMoveAsync(Guid gameId, Guid playerId, int position, CancellationToken cancellationToken = default)
     {
-        var game = await _gameRepository.GetByIdAsync(gameId, cancellationToken);
-        if (game == null)
-            throw new ArgumentException("Game not found", nameof(gameId));
+        const int maxRetries = 3;
+        var retryCount = 0;
 
-        game.MakeMove(position, playerId);
-        await _gameRepository.UpdateAsync(game, cancellationToken);
-
-        // Cache the updated game state
-        await _cacheService.SetAsync($"game:{gameId}", game, TimeSpan.FromMinutes(30), cancellationToken);
-
-        // Publish move event
-        var moveEvent = new MoveMadeEvent(gameId, playerId, position, new string(game.Board));
-        await _eventPublisher.PublishAsync(moveEvent, "move-made", cancellationToken);
-
-        // If game ended, publish game ended event
-        if (game.Status == GameStatus.Ended)
+        while (retryCount < maxRetries)
         {
-            var gameEndedEvent = new GameEndedEvent(gameId, game.WinnerId, game.WinnerId == null);
-            await _eventPublisher.PublishAsync(gameEndedEvent, "game-ended", cancellationToken);
+            try
+            {
+                // Get fresh game directly from database (bypass cache) to avoid concurrency issues
+                var game = await GetFreshGameFromDatabaseAsync(gameId, cancellationToken);
+                if (game == null)
+                    throw new ArgumentException("Game not found", nameof(gameId));
+
+                // Validate move before attempting to save
+                ValidateMove(game, position, playerId);
+
+                game.MakeMove(position, playerId);
+                await _gameRepository.UpdateAsync(game, cancellationToken);
+
+                // Cache the updated game state
+                await _cacheService.SetAsync($"game:{gameId}", game, TimeSpan.FromMinutes(30), cancellationToken);
+
+                // Publish move event
+                var moveEvent = new MoveMadeEvent(gameId, playerId, position, new string(game.Board));
+                await _eventPublisher.PublishAsync(moveEvent, "move-made", cancellationToken);
+
+                // If game ended, publish game ended event
+                if (game.Status == GameStatus.Ended)
+                {
+                    var gameEndedEvent = new GameEndedEvent(gameId, game.WinnerId, game.WinnerId == null);
+                    await _eventPublisher.PublishAsync(gameEndedEvent, "game-ended", cancellationToken);
+                }
+
+                return game;
+            }
+            catch (Exception ex) when (IsConcurrencyException(ex))
+            {
+                retryCount++;
+                if (retryCount >= maxRetries)
+                {
+                    throw new InvalidOperationException(
+                        "Unable to complete the move due to concurrent modifications. Please try again.");
+                }
+
+                // Wait a short time before retrying to reduce contention
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * retryCount), cancellationToken);
+            }
         }
 
-        return game;
+        // This line should never be reached due to the throw above, but is here for completeness
+        throw new InvalidOperationException("Unexpected error in MakeMoveAsync");
+    }
+
+    private static bool IsConcurrencyException(Exception ex)
+    {
+        // Check for common concurrency exception patterns
+        return ex.GetType().Name.Contains("ConcurrencyException") ||
+               ex.Message.Contains("expected to affect 1 row") ||
+               ex.Message.Contains("concurrency");
+    }
+
+    private void ValidateMove(Game game, int position, Guid playerId)
+    {
+        if (game.Status != GameStatus.InProgress)
+            throw new InvalidOperationException("Game is not in progress");
+
+        if (position < 0 || position >= 9)
+            throw new ArgumentException("Invalid position", nameof(position));
+
+        if (game.Board[position] != ' ')
+            throw new InvalidOperationException("Position is already taken");
     }
 
     public async Task<Game?> GetGameAsync(Guid gameId, CancellationToken cancellationToken = default)
@@ -79,5 +127,14 @@ public class GameService
         }
 
         return game;
+    }
+
+    /// <summary>
+    /// Gets fresh game data directly from database, bypassing cache.
+    /// Use this method when you need to update the game to avoid concurrency issues.
+    /// </summary>
+    private async Task<Game?> GetFreshGameFromDatabaseAsync(Guid gameId, CancellationToken cancellationToken = default)
+    {
+        return await _gameRepository.GetByIdAsync(gameId, cancellationToken);
     }
 } 

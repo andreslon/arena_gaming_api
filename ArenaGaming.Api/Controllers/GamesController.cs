@@ -45,7 +45,20 @@ public class GamesController : ControllerBase
         }
         catch (ArgumentException ex)
         {
-            return BadRequest(ex.Message);
+            return BadRequest(new { error = "Invalid argument", message = ex.Message });
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("concurrent modifications"))
+        {
+            return Conflict(new 
+            { 
+                error = "Concurrency conflict", 
+                message = "The game was modified by another player. Please refresh and try again.",
+                details = ex.Message 
+            });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { error = "Invalid operation", message = ex.Message });
         }
     }
 }
