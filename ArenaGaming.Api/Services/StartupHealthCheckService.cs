@@ -61,30 +61,21 @@ public class StartupHealthCheckService : BackgroundService
                     overallHealthy = false;
             }
 
-            // Log overall result with big emphasis
-            _logger.LogInformation("════════════════════════════════════════════════════════");
+            // Log simple result
             if (overallHealthy)
             {
-                _logger.LogInformation("🎉 ALL SERVICES HEALTHY - APPLICATION READY!");
-                _logger.LogInformation("✅ PostgreSQL: OK | ✅ Redis: OK | ✅ Pulsar: OK");
+                _logger.LogInformation("✅ All services OK: PostgreSQL | Redis | Pulsar");
             }
             else
             {
-                _logger.LogError("⚠️  SOME SERVICES UNHEALTHY - CHECK DETAILS ABOVE");
                 var statusSummary = $"{(postgresResult.IsHealthy ? "✅" : "❌")} PostgreSQL | " +
                                   $"{(redisResult.IsHealthy ? "✅" : "❌")} Redis | " +
                                   $"{(pulsarResult.IsHealthy ? "✅" : "❌")} Pulsar";
-                _logger.LogWarning(statusSummary);
+                _logger.LogError("❌ Service status: {StatusSummary}", statusSummary);
             }
-
-            // Log startup summary
-            LogStartupSummary(healthResults);
 
             // Store results for API access
             _healthCheckResults.SetStartupResults(healthResults);
-            
-            _logger.LogInformation("🏁 HEALTH CHECK PROCESS COMPLETED");
-            _logger.LogInformation("════════════════════════════════════════════════════════");
         }
         catch (Exception ex)
         {
@@ -100,14 +91,12 @@ public class StartupHealthCheckService : BackgroundService
 
         try
         {
-            _logger.LogInformation("   🔗 Connecting to PostgreSQL database...");
             using var scope = _serviceProvider.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // Test connection
             await dbContext.Database.OpenConnectionAsync();
             result.Details.Add("Connection", "✅ Successful");
-            _logger.LogInformation("   ✅ Database connection established");
 
             // Test migration status and apply if needed
             _logger.LogInformation("   🔍 Checking database migrations...");

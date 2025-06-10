@@ -694,6 +694,70 @@ namespace ArenaGaming.Api.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// Simple status check - just the essentials
+        /// </summary>
+        [HttpGet("status")]
+        public async Task<IActionResult> GetSimpleStatus()
+        {
+            var results = new Dictionary<string, string>();
+            
+            // Check PostgreSQL
+            try
+            {
+                await _dbContext.Database.OpenConnectionAsync();
+                await _dbContext.Database.CloseConnectionAsync();
+                results["pgsql"] = "✅";
+            }
+            catch
+            {
+                results["pgsql"] = "❌";
+            }
+            
+            // Check Redis
+            try
+            {
+                var db = _redis.GetDatabase();
+                await db.StringSetAsync("health_check", "test", TimeSpan.FromSeconds(30));
+                await db.StringGetAsync("health_check");
+                results["redis"] = "✅";
+            }
+            catch
+            {
+                results["redis"] = "❌";
+            }
+            
+            // Check Pulsar
+            try
+            {
+                var testTopic = "public/default/health-check-topic";
+                var producer = _pulsarClient.NewProducer()
+                    .Topic(testTopic)
+                    .Create();
+                
+                await producer.Send(System.Text.Encoding.UTF8.GetBytes("health check"));
+                await producer.DisposeAsync();
+                results["pulsar"] = "✅";
+            }
+            catch
+            {
+                results["pulsar"] = "❌";
+            }
+            
+            // Check Gemini
+            try
+            {
+                await _geminiService.GetNextMoveAsync("         ", 'O');
+                results["gemini"] = "✅";
+            }
+            catch
+            {
+                results["gemini"] = "❌";
+            }
+            
+            return Ok(results);
+        }
     }
 
     public class HealthStatusResponse
