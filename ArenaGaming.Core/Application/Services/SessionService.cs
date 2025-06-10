@@ -44,7 +44,7 @@ public class SessionService
     {
         try
         {
-            Console.WriteLine($"[GetSessionAsync] Buscando sesión: {sessionId}");
+            Console.WriteLine($"[GetSessionAsync] Looking for session: {sessionId}");
             
             // Try to get from cache first
             try
@@ -52,14 +52,14 @@ public class SessionService
                 var cachedSession = await _cacheService.GetAsync<Session>($"session:{sessionId}", cancellationToken);
                 if (cachedSession != null)
                 {
-                    Console.WriteLine($"[GetSessionAsync] Sesión encontrada en cache: {sessionId}");
+                    Console.WriteLine($"[GetSessionAsync] Session found in cache: {sessionId}");
                     return cachedSession;
                 }
-                Console.WriteLine($"[GetSessionAsync] Sesión no encontrada en cache, buscando en BD");
+                Console.WriteLine($"[GetSessionAsync] Session not found in cache, searching in database");
             }
             catch (Exception cacheEx)
             {
-                Console.WriteLine($"[GetSessionAsync] Error al acceder al cache: {cacheEx.Message}");
+                Console.WriteLine($"[GetSessionAsync] Error accessing cache: {cacheEx.Message}");
                 // Continue to database lookup
             }
 
@@ -67,29 +67,29 @@ public class SessionService
             var session = await _sessionRepository.GetByIdAsync(sessionId, cancellationToken);
             if (session != null)
             {
-                Console.WriteLine($"[GetSessionAsync] Sesión encontrada en BD: {sessionId}");
+                Console.WriteLine($"[GetSessionAsync] Session found in database: {sessionId}");
                 // Cache the session
                 try
                 {
                     await _cacheService.SetAsync($"session:{sessionId}", session, TimeSpan.FromHours(1), cancellationToken);
-                    Console.WriteLine($"[GetSessionAsync] Sesión guardada en cache");
+                    Console.WriteLine($"[GetSessionAsync] Session saved to cache");
                 }
                 catch (Exception cacheEx)
                 {
-                    Console.WriteLine($"[GetSessionAsync] Error al guardar en cache: {cacheEx.Message}");
+                    Console.WriteLine($"[GetSessionAsync] Error saving to cache: {cacheEx.Message}");
                     // Continue execution - cache errors shouldn't break the flow
                 }
             }
             else
             {
-                Console.WriteLine($"[GetSessionAsync] Sesión no encontrada en BD: {sessionId}");
+                Console.WriteLine($"[GetSessionAsync] Session not found in database: {sessionId}");
             }
 
             return session;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[GetSessionAsync] Error general: {ex.Message}");
+            Console.WriteLine($"[GetSessionAsync] General error: {ex.Message}");
             Console.WriteLine($"[GetSessionAsync] StackTrace: {ex.StackTrace}");
             throw;
         }
@@ -99,37 +99,37 @@ public class SessionService
     {
         try
         {
-            Console.WriteLine($"[StartNewGameAsync] Iniciando nuevo juego para sesión: {sessionId}");
+            Console.WriteLine($"[StartNewGameAsync] Starting new game for session: {sessionId}");
             
             var session = await GetSessionAsync(sessionId, cancellationToken);
             if (session == null)
             {
-                Console.WriteLine($"[StartNewGameAsync] Sesión no encontrada: {sessionId}");
-                throw new ArgumentException($"Sesión no encontrada: {sessionId}", nameof(sessionId));
+                Console.WriteLine($"[StartNewGameAsync] Session not found: {sessionId}");
+                throw new ArgumentException($"Session not found: {sessionId}", nameof(sessionId));
             }
 
-            Console.WriteLine($"[StartNewGameAsync] Sesión encontrada: {session.Id}, PlayerId: {session.PlayerId}");
+            Console.WriteLine($"[StartNewGameAsync] Session found: {session.Id}, PlayerId: {session.PlayerId}");
             
             var game = new Game(session.PlayerId);
-            Console.WriteLine($"[StartNewGameAsync] Creando juego con ID: {game.Id}");
+            Console.WriteLine($"[StartNewGameAsync] Creating game with ID: {game.Id}");
             
             await _gameRepository.AddAsync(game, cancellationToken);
-            Console.WriteLine($"[StartNewGameAsync] Juego guardado en repositorio");
+            Console.WriteLine($"[StartNewGameAsync] Game saved to repository");
 
             session.CurrentGameId = game.Id;
             await _sessionRepository.UpdateAsync(session, cancellationToken);
-            Console.WriteLine($"[StartNewGameAsync] Sesión actualizada con CurrentGameId: {game.Id}");
+            Console.WriteLine($"[StartNewGameAsync] Session updated with CurrentGameId: {game.Id}");
 
             // Update cache
             try
             {
                 await _cacheService.SetAsync($"session:{sessionId}", session, TimeSpan.FromHours(1), cancellationToken);
                 await _cacheService.SetAsync($"game:{game.Id}", game, TimeSpan.FromMinutes(30), cancellationToken);
-                Console.WriteLine($"[StartNewGameAsync] Cache actualizado");
+                Console.WriteLine($"[StartNewGameAsync] Cache updated");
             }
             catch (Exception cacheEx)
             {
-                Console.WriteLine($"[StartNewGameAsync] Error al actualizar cache: {cacheEx.Message}");
+                Console.WriteLine($"[StartNewGameAsync] Error updating cache: {cacheEx.Message}");
                 // Continue execution - cache errors shouldn't break the flow
             }
 
@@ -138,20 +138,20 @@ public class SessionService
             {
                 var gameStartedEvent = new GameStartedEvent(game.Id, session.PlayerId);
                 await _eventPublisher.PublishAsync(gameStartedEvent, "game-started", cancellationToken);
-                Console.WriteLine($"[StartNewGameAsync] Evento 'game-started' publicado");
+                Console.WriteLine($"[StartNewGameAsync] 'game-started' event published");
             }
             catch (Exception eventEx)
             {
-                Console.WriteLine($"[StartNewGameAsync] Error al publicar evento: {eventEx.Message}");
+                Console.WriteLine($"[StartNewGameAsync] Error publishing event: {eventEx.Message}");
                 // Continue execution - event publishing errors shouldn't break the flow
             }
 
-            Console.WriteLine($"[StartNewGameAsync] Juego iniciado exitosamente: {game.Id}");
+            Console.WriteLine($"[StartNewGameAsync] Game started successfully: {game.Id}");
             return game;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[StartNewGameAsync] Error general: {ex.Message}");
+            Console.WriteLine($"[StartNewGameAsync] General error: {ex.Message}");
             Console.WriteLine($"[StartNewGameAsync] StackTrace: {ex.StackTrace}");
             throw;
         }

@@ -40,7 +40,7 @@ public class SessionsController : ControllerBase
         var game = await _sessionService.StartNewGameAsync(id, cancellationToken);
         return Ok(new { 
             success = true, 
-            message = "Juego iniciado exitosamente",
+            message = "Game started successfully",
             data = game 
         });
     }
@@ -51,7 +51,7 @@ public class SessionsController : ControllerBase
         var game = await _sessionService.MakeAiMoveAsync(id, cancellationToken);
         return Ok(new { 
             success = true, 
-            message = "Movimiento de IA realizado exitosamente",
+            message = "AI move performed successfully",
             data = game 
         });
     }
