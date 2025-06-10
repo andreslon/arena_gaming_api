@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -35,6 +37,9 @@ public class GeminiService : IGeminiService
                 return GetFallbackMove(game);
             }
 
+            _logger.LogInformation("Asking Gemini for move suggestion. Player: {Player}, Board: {Board}", 
+                game.CurrentPlayerSymbol, game.Board);
+
             var prompt = GeneratePrompt(game);
             var requestBody = new
             {
@@ -50,18 +55,29 @@ public class GeminiService : IGeminiService
                 },
                 generationConfig = new
                 {
-                    temperature = 0.7,
-                    maxOutputTokens = 50
+                    temperature = 0.0,  // Maximum deterministic for logical game moves
+                    maxOutputTokens = 5,  // We only need 1 digit
+                    candidateCount = 1
+                },
+                safetySettings = new[]
+                {
+                    new { category = "HARM_CATEGORY_HARASSMENT", threshold = "BLOCK_NONE" },
+                    new { category = "HARM_CATEGORY_HATE_SPEECH", threshold = "BLOCK_NONE" },
+                    new { category = "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold = "BLOCK_NONE" },
+                    new { category = "HARM_CATEGORY_DANGEROUS_CONTENT", threshold = "BLOCK_NONE" }
                 }
             };
 
             var jsonContent = JsonSerializer.Serialize(requestBody);
             var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
+            // Set timeout for faster fallback
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
             // Updated endpoint with correct model
             var response = await _httpClient.PostAsync(
                 $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={apiKey}",
-                content);
+                content, cts.Token);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -71,7 +87,8 @@ public class GeminiService : IGeminiService
             }
 
             var responseContent = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("Gemini API response: {Response}", responseContent);
+            _logger.LogInformation("Gemini API response received. Length: {Length}", responseContent?.Length ?? 0);
+            _logger.LogDebug("Gemini API full response: {Response}", responseContent);
 
             using var document = JsonDocument.Parse(responseContent);
             var root = document.RootElement;
@@ -85,15 +102,48 @@ public class GeminiService : IGeminiService
                     parts.GetArrayLength() > 0)
                 {
                     var text = parts[0].GetProperty("text").GetString();
-                    if (int.TryParse(text?.Trim(), out int position) && position >= 0 && position <= 8)
+                    _logger.LogInformation("Gemini raw text response: '{Text}'", text);
+                    
+                    // Try to extract number from response
+                    var cleanText = text?.Trim();
+                    
+                    // Try direct parsing first
+                    if (int.TryParse(cleanText, out int position) && IsValidPosition(position))
                     {
                         _logger.LogInformation("Gemini suggested move: {Position}", position);
                         return position;
                     }
+                    
+                    // Try to extract first digit if response contains extra text
+                    if (!string.IsNullOrEmpty(cleanText))
+                    {
+                        foreach (char c in cleanText)
+                        {
+                            if (char.IsDigit(c))
+                            {
+                                int digit = c - '0';
+                                if (IsValidPosition(digit))
+                                {
+                                    _logger.LogInformation("Gemini extracted move from text: {Position}", digit);
+                                    return digit;
+                                }
+                            }
+                        }
+                    }
+                    
+                    _logger.LogWarning("Gemini response '{Text}' contains no valid move position", cleanText);
+                }
+                else
+                {
+                    _logger.LogWarning("Gemini response has unexpected structure - no content/parts found");
                 }
             }
+            else
+            {
+                _logger.LogWarning("Gemini response has no candidates");
+            }
 
-            _logger.LogWarning("Could not parse valid move from Gemini response, using fallback");
+            _logger.LogWarning("Could not parse valid move from Gemini response, using fallback AI");
             return GetFallbackMove(game);
         }
         catch (Exception ex)
@@ -106,21 +156,43 @@ public class GeminiService : IGeminiService
     private string GeneratePrompt(Game game)
     {
         var board = game.Board;
-        var currentPlayer = game.CurrentPlayerSymbol == 'X' ? "X" : "O";
-        var opponent = currentPlayer == "X" ? "O" : "X";
+        var currentPlayer = game.CurrentPlayerSymbol;
+        var opponent = currentPlayer == 'X' ? 'O' : 'X';
 
-        return $@"You are playing Tic-Tac-Toe as player {currentPlayer}. The board positions are numbered 0-8:
+        // Create visual board representation
+        var visualBoard = "";
+        for (int i = 0; i < 9; i += 3)
+        {
+            visualBoard += $"{board[i]}|{board[i + 1]}|{board[i + 2]}\n";
+            if (i < 6) visualBoard += "-----\n";
+        }
+
+        return $@"You are a MASTER Tic-Tac-Toe player. You are '{currentPlayer}', opponent is '{opponent}'.
+
+BOARD STATE:
+{visualBoard}
+
+POSITIONS:
 0|1|2
+-----
 3|4|5
+-----
 6|7|8
 
-Current board state: '{board}'
-- ' ' = empty
-- 'X' = X player
-- 'O' = O player
+STRATEGY (in priority order):
+1. WIN IMMEDIATELY if you can complete 3-in-a-row
+2. BLOCK opponent from winning
+3. CREATE FORK (multiple winning paths)
+4. BLOCK opponent forks
+5. TAKE CENTER (position 4) if available
+6. TAKE CORNERS (0,2,6,8) over edges (1,3,5,7)
 
-Your goal is to win or block the opponent from winning.
-Return ONLY a single number (0-8) representing the position where you want to place your '{currentPlayer}' mark.";
+Current situation analysis:
+- Look for any row/column/diagonal with 2 '{currentPlayer}' and 1 empty space → WIN
+- Look for any row/column/diagonal with 2 '{opponent}' and 1 empty space → BLOCK
+- Otherwise follow strategic priority
+
+RESPOND WITH ONLY THE POSITION NUMBER (0-8). NO OTHER TEXT.";
     }
 
     private int GetFallbackMove(Game game)
@@ -129,74 +201,54 @@ Return ONLY a single number (0-8) representing the position where you want to pl
         {
             var board = game.Board;
             var currentPlayer = game.CurrentPlayerSymbol;
-            var opponent = currentPlayer == 'X' ? 'O' : 'X';
 
-            // 1. Try to win
+            _logger.LogWarning("Using simple fallback AI since Gemini failed");
+
+            // Simple fallback: just find any empty position
+            var availablePositions = new List<int>();
             for (int i = 0; i < 9; i++)
             {
                 if (board[i] == ' ')
-                {
-                    var testBoard = board.ToCharArray();
-                    testBoard[i] = currentPlayer;
-                    if (IsWinningMove(new string(testBoard), currentPlayer))
-                    {
-                        _logger.LogInformation("Fallback AI found winning move at position {Position}", i);
-                        return i;
-                    }
-                }
+                    availablePositions.Add(i);
             }
 
-            // 2. Block opponent from winning
-            for (int i = 0; i < 9; i++)
+            if (availablePositions.Count == 0)
             {
-                if (board[i] == ' ')
-                {
-                    var testBoard = board.ToCharArray();
-                    testBoard[i] = opponent;
-                    if (IsWinningMove(new string(testBoard), opponent))
-                    {
-                        _logger.LogInformation("Fallback AI blocking opponent win at position {Position}", i);
-                        return i;
-                    }
-                }
+                _logger.LogError("No available moves found");
+                return 0;
             }
 
-            // 3. Take center if available
-            if (board[4] == ' ')
+            // Prefer center, then corners, then any position
+            if (availablePositions.Contains(4))
             {
-                _logger.LogInformation("Fallback AI taking center position");
+                _logger.LogInformation("Fallback AI taking center");
                 return 4;
             }
 
-            // 4. Take corners
-            int[] corners = { 0, 2, 6, 8 };
-            foreach (int corner in corners)
+            var corners = new[] { 0, 2, 6, 8 };
+            var availableCorners = corners.Where(c => availablePositions.Contains(c)).ToArray();
+            if (availableCorners.Length > 0)
             {
-                if (board[corner] == ' ')
-                {
-                    _logger.LogInformation("Fallback AI taking corner position {Position}", corner);
-                    return corner;
-                }
+                var corner = availableCorners[new Random().Next(availableCorners.Length)];
+                _logger.LogInformation("Fallback AI taking corner {Position}", corner);
+                return corner;
             }
 
-            // 5. Take any available position
-            for (int i = 0; i < 9; i++)
-            {
-                if (board[i] == ' ')
-                {
-                    _logger.LogInformation("Fallback AI taking available position {Position}", i);
-                    return i;
-                }
-            }
-
-            _logger.LogWarning("No available moves found, returning position 0");
-            return 0;
+            // Any available position
+            var position = availablePositions[new Random().Next(availablePositions.Count)];
+            _logger.LogInformation("Fallback AI taking position {Position}", position);
+            return position;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in fallback AI, returning position 0");
             return 0;
         }
+    }
+
+    private bool IsValidPosition(int position)
+    {
+        return position >= 0 && position <= 8;
     }
 
     private bool IsWinningMove(string board, char player)

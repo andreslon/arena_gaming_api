@@ -102,6 +102,18 @@ public class Game : Entity
     {
         return !Board.Contains(' ');
     }
+
+    /// <summary>
+    /// Set board state for AI calculation (used by frontend-managed games)
+    /// </summary>
+    public void SetBoardState(string board, char currentPlayerSymbol)
+    {
+        if (string.IsNullOrEmpty(board) || board.Length != 9)
+            throw new ArgumentException("Board must be exactly 9 characters", nameof(board));
+
+        Board = board;
+        CurrentPlayerSymbol = currentPlayerSymbol;
+    }
 }
 
 public enum GameStatus
