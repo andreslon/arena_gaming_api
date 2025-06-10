@@ -7,7 +7,7 @@ namespace ArenaGaming.Core.Domain;
 
 public class Game : Entity
 {
-    public char[] Board { get; private set; }
+    public string Board { get; private set; }
     public GameStatus Status { get; private set; }
     public char CurrentPlayerSymbol { get; private set; }
     public Guid PlayerId { get; private set; }
@@ -15,13 +15,18 @@ public class Game : Entity
     public DateTime? EndedAt { get; private set; }
     public ICollection<Move> Moves { get; private set; }
 
-    public Game(Guid playerId)
+    // Parameterless constructor for Entity Framework
+    private Game()
     {
-        PlayerId = playerId;
-        Board = new char[9] { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' };
+        Board = "         "; // 9 spaces
         Status = GameStatus.InProgress;
         CurrentPlayerSymbol = 'X';
         Moves = new List<Move>();
+    }
+
+    public Game(Guid playerId) : this()
+    {
+        PlayerId = playerId;
     }
 
     public void MakeMove(int position, Guid? playerId)
@@ -32,10 +37,21 @@ public class Game : Entity
         if (position < 0 || position >= 9)
             throw new ArgumentException("Invalid position", nameof(position));
 
-        if (Board[position] != ' ')
-            throw new InvalidOperationException("Position is already taken");
+        // Debug: Log the current board state
+        var boardState = string.Join(",", Board.Select((c, i) => $"{i}:'{c}'"));
+        Console.WriteLine($"[DEBUG] Making move at position {position}. Current board: [{boardState}]");
 
-        Board[position] = CurrentPlayerSymbol;
+        if (Board[position] != ' ')
+        {
+            Console.WriteLine($"[DEBUG] Position {position} is already taken. Current value: '{Board[position]}' (ASCII: {(int)Board[position]})");
+            throw new InvalidOperationException("Position is already taken");
+        }
+
+        // Convert string to char array, update, and convert back
+        var boardArray = Board.ToCharArray();
+        boardArray[position] = CurrentPlayerSymbol;
+        Board = new string(boardArray);
+        
         Moves.Add(new Move(Id, position, CurrentPlayerSymbol, playerId));
 
         if (CheckWinner())

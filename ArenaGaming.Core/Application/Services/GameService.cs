@@ -51,6 +51,10 @@ public class GameService
                 if (game == null)
                     throw new ArgumentException("Game not found", nameof(gameId));
 
+                // Debug: Log the game state
+                var boardState = string.Join(",", game.Board.Select((c, i) => $"{i}:'{c}'"));
+                Console.WriteLine($"[DEBUG] Game retrieved from DB. Board: [{boardState}], Status: {game.Status}, CurrentSymbol: {game.CurrentPlayerSymbol}");
+
                 // Validate move before attempting to save
                 ValidateMove(game, position, playerId);
 
@@ -61,7 +65,7 @@ public class GameService
                 await _cacheService.SetAsync($"game:{gameId}", game, TimeSpan.FromMinutes(30), cancellationToken);
 
                 // Publish move event
-                var moveEvent = new MoveMadeEvent(gameId, playerId, position, new string(game.Board));
+                var moveEvent = new MoveMadeEvent(gameId, playerId, position, game.Board);
                 await _eventPublisher.PublishAsync(moveEvent, "move-made", cancellationToken);
 
                 // If game ended, publish game ended event

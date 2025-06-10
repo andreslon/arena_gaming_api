@@ -90,7 +90,7 @@ public class GameResponse
     {
         Id = game.Id;
         PlayerId = game.PlayerId;
-        Board = new string(game.Board);
+        Board = game.Board;
         CurrentPlayerSymbol = game.CurrentPlayerSymbol.ToString();
         Status = game.Status.ToString();
         WinnerId = game.WinnerId;

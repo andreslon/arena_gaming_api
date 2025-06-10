@@ -24,7 +24,9 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Game>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Board).IsRequired();
+            entity.Property(e => e.Board)
+                .IsRequired()
+                .HasMaxLength(9); // Exactly 9 characters for tic-tac-toe board
             entity.Property(e => e.Status).IsRequired();
             entity.Property(e => e.CurrentPlayerSymbol).IsRequired();
             entity.Property(e => e.PlayerId).IsRequired();
