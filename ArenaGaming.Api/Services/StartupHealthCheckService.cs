@@ -32,47 +32,72 @@ public class StartupHealthCheckService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Wait a bit for the application to fully start and services to initialize
-        await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
-
-        _logger.LogInformation("🚀 Starting automatic health checks for all services...");
-        
-        var overallHealthy = true;
-        var healthResults = new List<ServiceHealthResult>();
-
-        // Test all services
-        var postgresResult = await TestPostgreSQL();
-        var redisResult = await TestRedis();
-        var pulsarResult = await TestPulsar();
-
-        healthResults.AddRange(new[] { postgresResult, redisResult, pulsarResult });
-
-        // Log individual results
-        foreach (var result in healthResults)
+        try
         {
-            LogServiceResult(result);
-            if (!result.IsHealthy)
-                overallHealthy = false;
-        }
+            // Wait a bit for the application to fully start and services to initialize
+            await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
 
-        // Log overall result
-        if (overallHealthy)
-        {
-            _logger.LogInformation("✅ ALL SERVICES ARE HEALTHY! Application is ready to handle requests.");
-        }
-        else
-        {
-            _logger.LogError("❌ SOME SERVICES ARE UNHEALTHY! Check the logs above for details.");
+            _logger.LogInformation("🚀 ARENA GAMING API - STARTING HEALTH CHECKS");
+            _logger.LogInformation("════════════════════════════════════════════════════════");
             
-            // Optionally, you can decide to stop the application if critical services are down
-            // _applicationLifetime.StopApplication();
+            var overallHealthy = true;
+            var healthResults = new List<ServiceHealthResult>();
+
+            // Test PostgreSQL
+            _logger.LogInformation("🔍 TESTING POSTGRESQL DATABASE...");
+            var postgresResult = await TestPostgreSQL();
+            healthResults.Add(postgresResult);
+            LogServiceResult(postgresResult);
+            
+            // Test Redis
+            _logger.LogInformation("🔍 TESTING REDIS CACHE...");
+            var redisResult = await TestRedis();
+            healthResults.Add(redisResult);
+            LogServiceResult(redisResult);
+            
+            // Test Pulsar
+            _logger.LogInformation("🔍 TESTING PULSAR MESSAGING...");
+            var pulsarResult = await TestPulsar();
+            healthResults.Add(pulsarResult);
+            LogServiceResult(pulsarResult);
+
+            // Check overall health
+            foreach (var result in healthResults)
+            {
+                if (!result.IsHealthy)
+                    overallHealthy = false;
+            }
+
+            // Log overall result with big emphasis
+            _logger.LogInformation("════════════════════════════════════════════════════════");
+            if (overallHealthy)
+            {
+                _logger.LogInformation("🎉 ALL SERVICES HEALTHY - APPLICATION READY!");
+                _logger.LogInformation("✅ PostgreSQL: OK | ✅ Redis: OK | ✅ Pulsar: OK");
+            }
+            else
+            {
+                _logger.LogError("⚠️  SOME SERVICES UNHEALTHY - CHECK DETAILS ABOVE");
+                var statusSummary = $"{(postgresResult.IsHealthy ? "✅" : "❌")} PostgreSQL | " +
+                                  $"{(redisResult.IsHealthy ? "✅" : "❌")} Redis | " +
+                                  $"{(pulsarResult.IsHealthy ? "✅" : "❌")} Pulsar";
+                _logger.LogWarning(statusSummary);
+            }
+
+            // Log startup summary
+            LogStartupSummary(healthResults);
+
+            // Store results for API access
+            _healthCheckResults.SetStartupResults(healthResults);
+            
+            _logger.LogInformation("🏁 HEALTH CHECK PROCESS COMPLETED");
+            _logger.LogInformation("════════════════════════════════════════════════════════");
         }
-
-        // Log startup summary
-        LogStartupSummary(healthResults);
-
-        // Store results for API access
-        _healthCheckResults.SetStartupResults(healthResults);
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "💥 CRITICAL ERROR DURING HEALTH CHECKS");
+            _logger.LogError("❌ Health check process failed: {ErrorMessage}", ex.Message);
+        }
     }
 
     private async Task<ServiceHealthResult> TestPostgreSQL()
@@ -82,37 +107,46 @@ public class StartupHealthCheckService : BackgroundService
 
         try
         {
+            _logger.LogInformation("   🔗 Connecting to PostgreSQL database...");
             using var scope = _serviceProvider.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
             // Test connection
             await dbContext.Database.OpenConnectionAsync();
             result.Details.Add("Connection", "✅ Successful");
+            _logger.LogInformation("   ✅ Database connection established");
 
             // Test migration status and apply if needed
+            _logger.LogInformation("   🔍 Checking database migrations...");
             var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
             if (!pendingMigrations.Any())
             {
                 result.Details.Add("Migrations", "✅ All applied");
+                _logger.LogInformation("   ✅ All migrations up to date");
             }
             else
             {
+                _logger.LogWarning("   ⚠️ Found {Count} pending migrations - applying now...", pendingMigrations.Count());
                 result.Details.Add("Migrations", $"⚠️ {pendingMigrations.Count()} pending - Applying now...");
                 result.Warnings.Add($"Auto-applying migrations: {string.Join(", ", pendingMigrations)}");
                 
                 // Apply pending migrations
                 await dbContext.Database.MigrateAsync();
                 result.Details["Migrations"] = "✅ Applied automatically";
+                _logger.LogInformation("   ✅ Migrations applied successfully");
             }
 
             // Test basic query (now should work after migrations)
+            _logger.LogInformation("   📊 Reading database statistics...");
             var gameCount = await dbContext.Games.CountAsync();
             var sessionCount = await dbContext.Sessions.CountAsync();
             var notificationCount = await dbContext.Notifications.CountAsync();
             var preferencesCount = await dbContext.NotificationPreferences.CountAsync();
             result.Details.Add("Data Access", $"✅ Games: {gameCount}, Sessions: {sessionCount}, Notifications: {notificationCount}, Preferences: {preferencesCount}");
+            _logger.LogInformation("   ✅ Database queries successful (Games: {Games}, Sessions: {Sessions})", gameCount, sessionCount);
 
             // Test a write operation (create and delete a test session)
+            _logger.LogInformation("   ✏️ Testing write operations...");
             var testSession = new Session(Guid.NewGuid());
             dbContext.Sessions.Add(testSession);
             await dbContext.SaveChangesAsync();
@@ -120,6 +154,7 @@ public class StartupHealthCheckService : BackgroundService
             dbContext.Sessions.Remove(testSession);
             await dbContext.SaveChangesAsync();
             result.Details.Add("Write Operations", "✅ Create/Delete successful");
+            _logger.LogInformation("   ✅ Write operations successful");
 
             await dbContext.Database.CloseConnectionAsync();
             
@@ -147,14 +182,17 @@ public class StartupHealthCheckService : BackgroundService
 
         try
         {
+            _logger.LogInformation("   🔗 Connecting to Redis cache...");
             using var scope = _serviceProvider.CreateScope();
             var redis = scope.ServiceProvider.GetRequiredService<IConnectionMultiplexer>();
             var database = redis.GetDatabase();
 
             // Test basic connectivity
             result.Details.Add("Connection", redis.IsConnected ? "✅ Connected" : "❌ Disconnected");
+            _logger.LogInformation("   ✅ Redis connection status: {Status}", redis.IsConnected ? "Connected" : "Disconnected");
 
             // Test write/read operations
+            _logger.LogInformation("   📝 Testing Redis read/write operations...");
             var testKey = $"startup-test:{Guid.NewGuid()}";
             var testValue = $"test-value-{DateTime.UtcNow:yyyyMMddHHmmss}";
             
@@ -165,25 +203,31 @@ public class StartupHealthCheckService : BackgroundService
             if (retrievedValue == testValue)
             {
                 result.Details.Add("Read/Write", "✅ Operations successful");
+                _logger.LogInformation("   ✅ Redis read/write operations successful");
             }
             else
             {
                 result.Details.Add("Read/Write", "❌ Data integrity issue");
                 result.Warnings.Add("Redis read/write test failed - data mismatch");
+                _logger.LogWarning("   ⚠️ Redis data integrity issue detected");
             }
 
-            // Get Redis info
+            // Test additional Redis operations
             try
             {
-                var server = redis.GetServer(redis.GetEndPoints().First());
-                var info = await server.InfoAsync();
-                var redisVersion = info.FirstOrDefault(i => i.Key == "redis_version")?.FirstOrDefault().Value ?? "Unknown";
-                result.Details.Add("Server Info", $"✅ Version: {redisVersion}");
+                // Test hash operations
+                var hashKey = $"startup-hash-test:{Guid.NewGuid()}";
+                await database.HashSetAsync(hashKey, "field1", "value1");
+                var hashValue = await database.HashGetAsync(hashKey, "field1");
+                await database.KeyDeleteAsync(hashKey);
+                
+                result.Details.Add("Hash Operations", hashValue == "value1" ? "✅ Successful" : "❌ Failed");
+                result.Details.Add("Server Info", $"✅ Endpoints: {string.Join(", ", redis.GetEndPoints().Select(ep => ep.ToString()))}");
             }
-            catch (Exception infoEx)
+            catch (Exception opsEx)
             {
-                result.Details.Add("Server Info", "⚠️ Could not retrieve");
-                result.Warnings.Add($"Could not get Redis server info: {infoEx.Message}");
+                result.Details.Add("Advanced Operations", "⚠️ Limited functionality");
+                result.Warnings.Add($"Advanced Redis operations warning: {opsEx.Message}");
             }
 
             stopwatch.Stop();
@@ -213,26 +257,32 @@ public class StartupHealthCheckService : BackgroundService
 
         try
         {
+            _logger.LogInformation("   🔗 Connecting to Pulsar messaging...");
             using var scope = _serviceProvider.CreateScope();
             var pulsarClient = scope.ServiceProvider.GetRequiredService<IPulsarClient>();
 
             var testTopic = $"startup-test-{Guid.NewGuid()}";
             
             // Test producer creation
+            _logger.LogInformation("   📤 Creating Pulsar producer...");
             producer = pulsarClient.NewProducer()
                 .Topic(testTopic)
                 .Create();
             result.Details.Add("Producer", "✅ Created successfully");
+            _logger.LogInformation("   ✅ Pulsar producer created successfully");
 
             // Test consumer creation
+            _logger.LogInformation("   📥 Creating Pulsar consumer...");
             consumer = pulsarClient.NewConsumer()
                 .Topic(testTopic)
                 .SubscriptionName("startup-health-check")
                 .SubscriptionType(SubscriptionType.Exclusive)
                 .Create();
             result.Details.Add("Consumer", "✅ Created successfully");
+            _logger.LogInformation("   ✅ Pulsar consumer created successfully");
 
             // Test message sending
+            _logger.LogInformation("   📨 Sending test message...");
             var testMessage = new
             {
                 Id = Guid.NewGuid(),
@@ -243,8 +293,10 @@ public class StartupHealthCheckService : BackgroundService
             var messageBytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(testMessage));
             var messageId = await producer.Send(messageBytes);
             result.Details.Add("Message Send", $"✅ Message sent: {messageId}");
+            _logger.LogInformation("   ✅ Message sent successfully: {MessageId}", messageId);
 
             // Test message receiving (with short timeout)
+            _logger.LogInformation("   📨 Attempting to receive message...");
             var messageReceived = false;
             try
             {
@@ -263,8 +315,13 @@ public class StartupHealthCheckService : BackgroundService
 
             result.Details.Add("Message Receive", messageReceived ? "✅ Message received" : "⚠️ Timeout (acceptable)");
             
-            if (!messageReceived)
+            if (messageReceived)
             {
+                _logger.LogInformation("   ✅ Message received and acknowledged successfully");
+            }
+            else
+            {
+                _logger.LogInformation("   ⚠️ Message receive timeout (this may be normal during startup)");
                 result.Warnings.Add("Message receiving timed out - this may be normal during startup");
             }
 
@@ -296,52 +353,79 @@ public class StartupHealthCheckService : BackgroundService
     private void LogServiceResult(ServiceHealthResult result)
     {
         var statusIcon = result.IsHealthy ? "✅" : "❌";
-        var serviceName = result.ServiceName.PadRight(12);
+        var serviceName = result.ServiceName.ToUpper().PadRight(12);
+        var status = result.IsHealthy ? "HEALTHY" : "FAILED";
         
-        _logger.LogInformation("{StatusIcon} {ServiceName} | {Message} ({ResponseTime}ms)", 
-            statusIcon, serviceName, result.Message, result.ResponseTime);
+        // Big visible header for each service
+        _logger.LogInformation("┌─────────────────────────────────────────────────────────┐");
+        _logger.LogInformation("│ {StatusIcon} {ServiceName} - {Status} ({ResponseTime}ms){Padding}│", 
+            statusIcon, serviceName, status, result.ResponseTime, new string(' ', Math.Max(0, 20 - status.Length - result.ResponseTime.ToString().Length)));
+        _logger.LogInformation("├─────────────────────────────────────────────────────────┤");
 
-        // Log details
+        // Log details with better formatting
         foreach (var detail in result.Details)
         {
-            _logger.LogInformation("   └─ {Key}: {Value}", detail.Key, detail.Value);
+            _logger.LogInformation("│   {Key}: {Value}{Padding}│", 
+                detail.Key.PadRight(20), detail.Value, new string(' ', Math.Max(0, 32 - detail.Key.Length - detail.Value.Length)));
         }
 
-        // Log warnings
+        // Log warnings with emphasis
         foreach (var warning in result.Warnings)
         {
-            _logger.LogWarning("   ⚠️  {Warning}", warning);
+            _logger.LogWarning("│ ⚠️  WARNING: {Warning}{Padding}│", 
+                warning, new string(' ', Math.Max(0, 44 - warning.Length)));
         }
 
-        // Log errors
+        // Log errors with full details
         if (result.Error != null)
         {
-            _logger.LogError(result.Error, "   ❌ Error details for {ServiceName}", result.ServiceName);
+            _logger.LogError("│ ❌ ERROR: {ErrorMessage}{Padding}│", 
+                result.Error.Message, new string(' ', Math.Max(0, 45 - result.Error.Message.Length)));
+            _logger.LogError(result.Error, "│   Full error details for {ServiceName}", result.ServiceName);
         }
+
+        _logger.LogInformation("└─────────────────────────────────────────────────────────┘");
+        _logger.LogInformation(""); // Empty line for spacing
     }
 
     private void LogStartupSummary(List<ServiceHealthResult> results)
     {
-        _logger.LogInformation("═══════════════════════════════════════════════════════════");
-        _logger.LogInformation("🏥 STARTUP HEALTH CHECK SUMMARY");
-        _logger.LogInformation("═══════════════════════════════════════════════════════════");
+        _logger.LogInformation("╔═══════════════════════════════════════════════════════════╗");
+        _logger.LogInformation("║                 🏥 HEALTH CHECK SUMMARY                  ║");
+        _logger.LogInformation("╠═══════════════════════════════════════════════════════════╣");
         
         var healthyCount = results.Count(r => r.IsHealthy);
         var totalCount = results.Count;
+        var totalTime = results.Sum(r => r.ResponseTime);
         
-        _logger.LogInformation("📊 Services Status: {HealthyCount}/{TotalCount} healthy", healthyCount, totalCount);
-        _logger.LogInformation("⏱️  Total Response Time: {TotalTime}ms", results.Sum(r => r.ResponseTime));
+        _logger.LogInformation("║ 📊 Status: {HealthyCount}/{TotalCount} services healthy{Padding}║", 
+            healthyCount, totalCount, new string(' ', 28 - $"{healthyCount}/{totalCount}".Length));
+        _logger.LogInformation("║ ⏱️  Total Response Time: {TotalTime}ms{Padding}║", 
+            totalTime, new string(' ', 33 - totalTime.ToString().Length));
+        
+        // Individual service status
+        _logger.LogInformation("║{Padding}║", new string(' ', 59));
+        foreach (var result in results)
+        {
+            var icon = result.IsHealthy ? "✅" : "❌";
+            var status = result.IsHealthy ? "HEALTHY" : "FAILED";
+            _logger.LogInformation("║ {Icon} {ServiceName}: {Status} ({ResponseTime}ms){Padding}║", 
+                icon, result.ServiceName.PadRight(10), status, result.ResponseTime,
+                new string(' ', Math.Max(0, 32 - result.ServiceName.Length - status.Length - result.ResponseTime.ToString().Length)));
+        }
+        
+        _logger.LogInformation("║{Padding}║", new string(' ', 59));
         
         if (healthyCount == totalCount)
         {
-            _logger.LogInformation("🎉 All systems operational - Application ready for production use!");
+            _logger.LogInformation("║ 🎉 ALL SYSTEMS OPERATIONAL - READY FOR PRODUCTION! 🎉   ║");
         }
         else
         {
-            _logger.LogWarning("⚠️  Some services may need attention before production use.");
+            _logger.LogWarning("║ ⚠️  SOME SERVICES NEED ATTENTION BEFORE PRODUCTION      ║");
         }
         
-        _logger.LogInformation("═══════════════════════════════════════════════════════════");
+        _logger.LogInformation("╚═══════════════════════════════════════════════════════════╝");
     }
 
     public class ServiceHealthResult

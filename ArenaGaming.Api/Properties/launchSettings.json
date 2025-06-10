@@ -14,7 +14,7 @@
         "Gemini_ApiKey": "AIzaSyAxMlZ80j89_vjoqXAu__1NmYC4yi2bzmg",
         "Pulsar_Tenant": "public",
         "Pulsar_Namespace": "default",
-        "ConnectionStrings_Pulsar": "pulsar://135.18.204.13:6650"
+        "ConnectionStrings_Pulsar": "pulsar://4.153.213.74:6650"
       }
     }
   }

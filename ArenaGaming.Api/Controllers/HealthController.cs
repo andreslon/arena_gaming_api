@@ -1,4 +1,5 @@
-﻿using ArenaGaming.Core.Domain;
+﻿using ArenaGaming.Core.Application.Interfaces;
+using ArenaGaming.Core.Domain;
 using ArenaGaming.Infrastructure.Persistence;
 using DotPulsar;
 using DotPulsar.Abstractions;
@@ -23,19 +24,22 @@ namespace ArenaGaming.Api.Controllers
     private readonly IPulsarClient _pulsarClient;
     private readonly ILogger<HealthController> _logger;
     private readonly ArenaGaming.Api.Services.IHealthCheckResultsService _healthCheckResults;
+    private readonly IGeminiService _geminiService;
 
     public HealthController(
         ApplicationDbContext dbContext,
         IConnectionMultiplexer redis,
         IPulsarClient pulsarClient,
         ILogger<HealthController> logger,
-        ArenaGaming.Api.Services.IHealthCheckResultsService healthCheckResults)
+        ArenaGaming.Api.Services.IHealthCheckResultsService healthCheckResults,
+        IGeminiService geminiService)
     {
         _dbContext = dbContext;
         _redis = redis;
         _pulsarClient = pulsarClient;
         _logger = logger;
         _healthCheckResults = healthCheckResults;
+        _geminiService = geminiService;
     }
 
         /// <summary>
@@ -215,10 +219,6 @@ namespace ArenaGaming.Api.Controllers
                 // Cleanup
                 await database.KeyDeleteAsync(testKey);
 
-                // Get Redis info
-                var server = _redis.GetServer(_redis.GetEndPoints().First());
-                var info = await server.InfoAsync();
-                
                 stopwatch.Stop();
                 
                 if (retrievedValue == testValue)
@@ -238,7 +238,9 @@ namespace ArenaGaming.Api.Controllers
                     ["IsConnected"] = _redis.IsConnected,
                     ["EndPoints"] = _redis.GetEndPoints().Select(ep => ep.ToString()).ToArray(),
                     ["ResponseTimeMs"] = stopwatch.ElapsedMilliseconds,
-                    ["RedisVersion"] = info.FirstOrDefault(i => i.Key == "redis_version")?.FirstOrDefault().Value ?? "Unknown"
+                    ["TestKeyCreated"] = true,
+                    ["TestKeyRetrieved"] = retrievedValue.HasValue,
+                    ["TestKeyDeleted"] = true
                 };
             }
             catch (Exception ex)
@@ -615,6 +617,81 @@ namespace ArenaGaming.Api.Controllers
                 {
                     await consumer.DisposeAsync();
                 }
+            }
+        }
+
+        /// <summary>
+        /// Test Gemini AI service with a simple tic-tac-toe scenario
+        /// </summary>
+        [HttpPost("gemini/test")]
+        public async Task<IActionResult> TestGeminiOperations()
+        {
+            try
+            {
+                var testResults = new Dictionary<string, object>();
+                var stopwatch = Stopwatch.StartNew();
+
+                // Test 1: Simple empty board scenario
+                var emptyBoard = "         "; // 9 spaces for tic-tac-toe
+                var aiPosition1 = await _geminiService.GetNextMoveAsync(emptyBoard, 'O');
+                testResults["EmptyBoardTest"] = (aiPosition1 >= 0 && aiPosition1 <= 8) ? "Success" : "Failed";
+                testResults["EmptyBoardPosition"] = aiPosition1;
+
+                // Test 2: Scenario where AI should block player win
+                var blockBoard = "XX       "; // Player has X's in positions 0,1 - AI should block at position 2
+                var aiPosition2 = await _geminiService.GetNextMoveAsync(blockBoard, 'O');
+                testResults["BlockingTest"] = (aiPosition2 == 2) ? "Success" : "Partial"; // AI should ideally block at position 2
+                testResults["BlockingPosition"] = aiPosition2;
+
+                // Test 3: Scenario where AI should take winning move
+                var winBoard = " O O     "; // AI has O's in positions 1,3 - should win at position 5
+                var aiPosition3 = await _geminiService.GetNextMoveAsync(winBoard, 'O');
+                testResults["WinningTest"] = (aiPosition3 == 5) ? "Success" : "Partial"; // AI should ideally win at position 5
+                testResults["WinningPosition"] = aiPosition3;
+
+                // Test 4: Complex board scenario
+                var complexBoard = "XOX O    "; // More complex scenario
+                var aiPosition4 = await _geminiService.GetNextMoveAsync(complexBoard, 'O');
+                testResults["ComplexBoardTest"] = (aiPosition4 >= 5 && aiPosition4 <= 8) ? "Success" : "Partial";
+                testResults["ComplexBoardPosition"] = aiPosition4;
+
+                stopwatch.Stop();
+
+                // Calculate success rate
+                var successCount = testResults.Values.Count(v => v.ToString() == "Success");
+                var totalTests = 4;
+                var successRate = (double)successCount / totalTests * 100;
+
+                return Ok(new
+                {
+                    Service = "Gemini AI",
+                    Status = successRate >= 75 ? "Success" : successRate >= 50 ? "Partial" : "Failed",
+                    ResponseTime = stopwatch.ElapsedMilliseconds,
+                    SuccessRate = $"{successRate:F1}%",
+                    TestResults = testResults,
+                    Summary = new
+                    {
+                        TotalTests = totalTests,
+                        SuccessfulTests = successCount,
+                        ApiConnectivity = "Working",
+                        ResponseQuality = successRate >= 75 ? "Good" : successRate >= 50 ? "Acceptable" : "Poor"
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Gemini test operations failed");
+                return StatusCode(500, new
+                {
+                    Service = "Gemini AI",
+                    Status = "Test failed",
+                    Error = ex.Message,
+                    Details = new
+                    {
+                        ApiKeyConfigured = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("Gemini_ApiKey")),
+                        ErrorType = ex.GetType().Name
+                    }
+                });
             }
         }
     }
