@@ -1,7 +1,7 @@
 using ArenaGaming.Core.Domain.Notifications;
-using ArenaGaming.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
+using System.Text.Json;
 
 namespace ArenaGaming.Api.Controllers;
 
@@ -9,14 +9,15 @@ namespace ArenaGaming.Api.Controllers;
 [Route("api/[controller]")]
 public class NotificationPreferencesController : ControllerBase
 {
-    private readonly ApplicationDbContext _context;
+    private readonly IDatabase _database;
     private readonly ILogger<NotificationPreferencesController> _logger;
+    private const string PREFERENCES_KEY_PREFIX = "notification_preferences:";
 
     public NotificationPreferencesController(
-        ApplicationDbContext context,
+        IConnectionMultiplexer redis,
         ILogger<NotificationPreferencesController> logger)
     {
-        _context = context;
+        _database = redis.GetDatabase();
         _logger = logger;
     }
 
@@ -28,10 +29,12 @@ public class NotificationPreferencesController : ControllerBase
     {
         try
         {
-            var preferences = await _context.NotificationPreferences
-                .FirstOrDefaultAsync(p => p.UserId == userId);
+            var key = PREFERENCES_KEY_PREFIX + userId;
+            var preferencesJson = await _database.StringGetAsync(key);
 
-            if (preferences == null)
+            NotificationPreferences preferences;
+
+            if (!preferencesJson.HasValue)
             {
                 // Create default preferences if none exist
                 preferences = new NotificationPreferences
@@ -43,8 +46,12 @@ public class NotificationPreferencesController : ControllerBase
                     Volume = 50
                 };
 
-                _context.NotificationPreferences.Add(preferences);
-                await _context.SaveChangesAsync();
+                var json = JsonSerializer.Serialize(preferences);
+                await _database.StringSetAsync(key, json, TimeSpan.FromDays(30));
+            }
+            else
+            {
+                preferences = JsonSerializer.Deserialize<NotificationPreferences>(preferencesJson!)!;
             }
 
             return Ok(new NotificationPreferencesResponse
@@ -76,16 +83,21 @@ public class NotificationPreferencesController : ControllerBase
     {
         try
         {
-            var preferences = await _context.NotificationPreferences
-                .FirstOrDefaultAsync(p => p.UserId == userId);
+            var key = PREFERENCES_KEY_PREFIX + userId;
+            var preferencesJson = await _database.StringGetAsync(key);
 
-            if (preferences == null)
+            NotificationPreferences preferences;
+
+            if (!preferencesJson.HasValue)
             {
                 preferences = new NotificationPreferences
                 {
                     UserId = userId
                 };
-                _context.NotificationPreferences.Add(preferences);
+            }
+            else
+            {
+                preferences = JsonSerializer.Deserialize<NotificationPreferences>(preferencesJson!)!;
             }
 
             // Update preferences
@@ -108,7 +120,8 @@ public class NotificationPreferencesController : ControllerBase
             if (request.SystemUpdates.HasValue)
                 preferences.SystemUpdates = request.SystemUpdates.Value;
 
-            await _context.SaveChangesAsync();
+            var updatedJson = JsonSerializer.Serialize(preferences);
+            await _database.StringSetAsync(key, updatedJson, TimeSpan.FromDays(30));
 
             return Ok(new { success = true, message = "Preferences updated successfully" });
         }
@@ -127,32 +140,23 @@ public class NotificationPreferencesController : ControllerBase
     {
         try
         {
-            var preferences = await _context.NotificationPreferences
-                .FirstOrDefaultAsync(p => p.UserId == userId);
-
-            if (preferences == null)
+            var preferences = new NotificationPreferences
             {
-                preferences = new NotificationPreferences
-                {
-                    UserId = userId
-                };
-                _context.NotificationPreferences.Add(preferences);
-            }
-            else
-            {
-                // Reset to default values
-                preferences.GameEvents = true;
-                preferences.SocialEvents = true;
-                preferences.SoundEffects = true;
-                preferences.Volume = 50;
-                preferences.EmailNotifications = false;
-                preferences.PushNotifications = true;
-                preferences.TournamentAlerts = true;
-                preferences.PlayerActions = true;
-                preferences.SystemUpdates = true;
-            }
+                UserId = userId,
+                GameEvents = true,
+                SocialEvents = true,
+                SoundEffects = true,
+                Volume = 50,
+                EmailNotifications = false,
+                PushNotifications = true,
+                TournamentAlerts = true,
+                PlayerActions = true,
+                SystemUpdates = true
+            };
 
-            await _context.SaveChangesAsync();
+            var key = PREFERENCES_KEY_PREFIX + userId;
+            var json = JsonSerializer.Serialize(preferences);
+            await _database.StringSetAsync(key, json, TimeSpan.FromDays(30));
 
             return Ok(new { success = true, message = "Preferences reset to default values" });
         }

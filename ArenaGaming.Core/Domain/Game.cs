@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Serialization;
 using ArenaGaming.Core.Domain.Common;
 
 namespace ArenaGaming.Core.Domain;
@@ -15,8 +16,9 @@ public class Game : Entity
     public DateTime? EndedAt { get; private set; }
     public ICollection<Move> Moves { get; private set; }
 
-    // Parameterless constructor for Entity Framework
-    private Game()
+    // Constructor for JSON serialization
+    [JsonConstructor]
+    public Game()
     {
         Board = "         "; // 9 spaces
         Status = GameStatus.InProgress;

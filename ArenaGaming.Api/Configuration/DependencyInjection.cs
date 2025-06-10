@@ -5,10 +5,8 @@ using ArenaGaming.Infrastructure.AI;
 using ArenaGaming.Infrastructure.Caching;
 using ArenaGaming.Infrastructure.Messaging;
 using ArenaGaming.Infrastructure.Persistence;
-using ArenaGaming.Infrastructure.Persistence.Repositories;
 using DotPulsar;
 using DotPulsar.Abstractions;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
@@ -19,11 +17,7 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        // Add DbContext
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseNpgsql(Environment.GetEnvironmentVariable("ConnectionStrings_DefaultConnection")));
-
-        // Add Redis
+        // Add Redis (our only data store now!)
         services.AddSingleton<IConnectionMultiplexer>(sp =>
             ConnectionMultiplexer.Connect(Environment.GetEnvironmentVariable("ConnectionStrings_Redis") ?? "localhost"));
 
@@ -36,7 +30,7 @@ public static class DependencyInjection
             return new PulsarEventPublisher(pulsarClient, tenant, @namespace);
         });
 
-        // Add Repositories
+        // Add Redis-based Repositories (no more PostgreSQL!)
         services.AddScoped<IGameRepository, GameRepository>();
         services.AddScoped<ISessionRepository, SessionRepository>();
         services.AddScoped<IMoveRepository, MoveRepository>();

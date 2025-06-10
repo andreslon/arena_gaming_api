@@ -42,10 +42,6 @@ public class StartupHealthCheckService : BackgroundService
             var overallHealthy = true;
             var healthResults = new List<ServiceHealthResult>();
 
-            // Test PostgreSQL
-            var postgresResult = await TestPostgreSQL();
-            healthResults.Add(postgresResult);
-            
             // Test Redis
             var redisResult = await TestRedis();
             healthResults.Add(redisResult);
@@ -64,12 +60,11 @@ public class StartupHealthCheckService : BackgroundService
             // Log simple result
             if (overallHealthy)
             {
-                _logger.LogInformation("✅ All services OK: PostgreSQL | Redis | Pulsar");
+                _logger.LogInformation("✅ All services OK: Redis | Pulsar");
             }
             else
             {
-                var statusSummary = $"{(postgresResult.IsHealthy ? "✅" : "❌")} PostgreSQL | " +
-                                  $"{(redisResult.IsHealthy ? "✅" : "❌")} Redis | " +
+                var statusSummary = $"{(redisResult.IsHealthy ? "✅" : "❌")} Redis | " +
                                   $"{(pulsarResult.IsHealthy ? "✅" : "❌")} Pulsar";
                 _logger.LogError("❌ Service status: {StatusSummary}", statusSummary);
             }
@@ -84,78 +79,7 @@ public class StartupHealthCheckService : BackgroundService
         }
     }
 
-    private async Task<ServiceHealthResult> TestPostgreSQL()
-    {
-        var result = new ServiceHealthResult { ServiceName = "PostgreSQL" };
-        var stopwatch = Stopwatch.StartNew();
 
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-            // Test connection
-            await dbContext.Database.OpenConnectionAsync();
-            result.Details.Add("Connection", "✅ Successful");
-
-            // Test migration status and apply if needed
-            _logger.LogInformation("   🔍 Checking database migrations...");
-            var pendingMigrations = await dbContext.Database.GetPendingMigrationsAsync();
-            if (!pendingMigrations.Any())
-            {
-                result.Details.Add("Migrations", "✅ All applied");
-                _logger.LogInformation("   ✅ All migrations up to date");
-            }
-            else
-            {
-                _logger.LogWarning("   ⚠️ Found {Count} pending migrations - applying now...", pendingMigrations.Count());
-                result.Details.Add("Migrations", $"⚠️ {pendingMigrations.Count()} pending - Applying now...");
-                result.Warnings.Add($"Auto-applying migrations: {string.Join(", ", pendingMigrations)}");
-                
-                // Apply pending migrations
-                await dbContext.Database.MigrateAsync();
-                result.Details["Migrations"] = "✅ Applied automatically";
-                _logger.LogInformation("   ✅ Migrations applied successfully");
-            }
-
-            // Test basic query (now should work after migrations)
-            _logger.LogInformation("   📊 Reading database statistics...");
-            var gameCount = await dbContext.Games.CountAsync();
-            var sessionCount = await dbContext.Sessions.CountAsync();
-            var notificationCount = await dbContext.Notifications.CountAsync();
-            var preferencesCount = await dbContext.NotificationPreferences.CountAsync();
-            result.Details.Add("Data Access", $"✅ Games: {gameCount}, Sessions: {sessionCount}, Notifications: {notificationCount}, Preferences: {preferencesCount}");
-            _logger.LogInformation("   ✅ Database queries successful (Games: {Games}, Sessions: {Sessions})", gameCount, sessionCount);
-
-            // Test a write operation (create and delete a test session)
-            _logger.LogInformation("   ✏️ Testing write operations...");
-            var testSession = new Session(Guid.NewGuid());
-            dbContext.Sessions.Add(testSession);
-            await dbContext.SaveChangesAsync();
-            
-            dbContext.Sessions.Remove(testSession);
-            await dbContext.SaveChangesAsync();
-            result.Details.Add("Write Operations", "✅ Create/Delete successful");
-            _logger.LogInformation("   ✅ Write operations successful");
-
-            await dbContext.Database.CloseConnectionAsync();
-            
-            stopwatch.Stop();
-            result.IsHealthy = true;
-            result.ResponseTime = stopwatch.ElapsedMilliseconds;
-            result.Message = "PostgreSQL is healthy and ready";
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            result.IsHealthy = false;
-            result.ResponseTime = stopwatch.ElapsedMilliseconds;
-            result.Message = $"PostgreSQL failed: {ex.Message}";
-            result.Error = ex;
-        }
-
-        return result;
-    }
 
     private async Task<ServiceHealthResult> TestRedis()
     {

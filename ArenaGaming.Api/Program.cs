@@ -1,8 +1,6 @@
 using System.Text.Json.Serialization;
 using ArenaGaming.Api.Configuration;
 using ArenaGaming.Api.Middleware;
-using ArenaGaming.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -55,5 +53,5 @@ app.UseCors("AllowAll");
 app.UseAuthorization();
 app.MapControllers();
 
-// Note: Database migrations are now handled automatically by StartupHealthCheckService
+// Redis-only architecture - no database migrations needed!
 app.Run();
