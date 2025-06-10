@@ -10,7 +10,7 @@ public static class PulsarConfiguration
     public static IServiceCollection AddPulsarServices(this IServiceCollection services, IConfiguration configuration)
     {
         // Configure Pulsar client
-        var pulsarServiceUrl = configuration.GetConnectionString("Pulsar") ?? "pulsar://localhost:6650";
+        var pulsarServiceUrl = Environment.GetEnvironmentVariable("ConnectionStrings_Pulsar") ?? "pulsar://localhost:6650";
         
         services.AddSingleton<IPulsarClient>(serviceProvider =>
         {

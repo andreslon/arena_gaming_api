@@ -27,13 +27,7 @@ public static class DependencyInjection
         services.AddSingleton<IConnectionMultiplexer>(sp =>
             ConnectionMultiplexer.Connect(Environment.GetEnvironmentVariable("ConnectionStrings_Redis") ?? "localhost"));
 
-        // Add Pulsar
-        services.AddSingleton<IPulsarClient>(sp =>
-            PulsarClient.Builder()
-                .ServiceUrl(new Uri(Environment.GetEnvironmentVariable("ConnectionStrings_Pulsar") ?? "pulsar://localhost:6650"))
-                .Build());
-
-        // Add Pulsar Event Publisher with configuration
+        // Pulsar Event Publisher with configuration (client configured in PulsarConfiguration.cs)
         services.AddScoped<IEventPublisher>(sp =>
         {
             var pulsarClient = sp.GetRequiredService<IPulsarClient>();

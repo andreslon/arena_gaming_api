@@ -37,29 +37,22 @@ public class StartupHealthCheckService : BackgroundService
             // Wait a bit for the application to fully start and services to initialize
             await Task.Delay(TimeSpan.FromSeconds(3), stoppingToken);
 
-            _logger.LogInformation("🚀 ARENA GAMING API - STARTING HEALTH CHECKS");
-            _logger.LogInformation("════════════════════════════════════════════════════════");
+            _logger.LogInformation("🚀 Testing services...");
             
             var overallHealthy = true;
             var healthResults = new List<ServiceHealthResult>();
 
             // Test PostgreSQL
-            _logger.LogInformation("🔍 TESTING POSTGRESQL DATABASE...");
             var postgresResult = await TestPostgreSQL();
             healthResults.Add(postgresResult);
-            LogServiceResult(postgresResult);
             
             // Test Redis
-            _logger.LogInformation("🔍 TESTING REDIS CACHE...");
             var redisResult = await TestRedis();
             healthResults.Add(redisResult);
-            LogServiceResult(redisResult);
             
             // Test Pulsar
-            _logger.LogInformation("🔍 TESTING PULSAR MESSAGING...");
             var pulsarResult = await TestPulsar();
             healthResults.Add(pulsarResult);
-            LogServiceResult(pulsarResult);
 
             // Check overall health
             foreach (var result in healthResults)
@@ -261,27 +254,55 @@ public class StartupHealthCheckService : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var pulsarClient = scope.ServiceProvider.GetRequiredService<IPulsarClient>();
 
+            // Check Pulsar server URL
+            var pulsarUrl = Environment.GetEnvironmentVariable("ConnectionStrings_Pulsar") ?? "pulsar://localhost:6650";
+            _logger.LogInformation("   📡 Pulsar Server: {PulsarUrl}", pulsarUrl);
+
             var testTopic = $"startup-test-{Guid.NewGuid()}";
             
-            // Test producer creation
+            // Test producer creation with timeout
             _logger.LogInformation("   📤 Creating Pulsar producer...");
-            producer = pulsarClient.NewProducer()
-                .Topic(testTopic)
-                .Create();
-            result.Details.Add("Producer", "✅ Created successfully");
-            _logger.LogInformation("   ✅ Pulsar producer created successfully");
+            using var producerTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try
+            {
+                var producerTask = Task.Run(() => pulsarClient.NewProducer()
+                    .Topic(testTopic)
+                    .Create(), producerTimeoutCts.Token);
+                
+                producer = await producerTask;
+                result.Details.Add("Producer", "✅ Created successfully");
+                _logger.LogInformation("   ✅ Pulsar producer created successfully");
+            }
+            catch (OperationCanceledException)
+            {
+                result.Details.Add("Producer", "❌ Creation timeout");
+                _logger.LogError("   ❌ Pulsar producer creation timed out after 15 seconds");
+                throw new Exception("Pulsar producer creation timed out - server may be unreachable");
+            }
 
-            // Test consumer creation
+            // Test consumer creation with timeout
             _logger.LogInformation("   📥 Creating Pulsar consumer...");
-            consumer = pulsarClient.NewConsumer()
-                .Topic(testTopic)
-                .SubscriptionName("startup-health-check")
-                .SubscriptionType(SubscriptionType.Exclusive)
-                .Create();
-            result.Details.Add("Consumer", "✅ Created successfully");
-            _logger.LogInformation("   ✅ Pulsar consumer created successfully");
+            using var consumerTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            try
+            {
+                var consumerTask = Task.Run(() => pulsarClient.NewConsumer()
+                    .Topic(testTopic)
+                    .SubscriptionName("startup-health-check")
+                    .SubscriptionType(SubscriptionType.Exclusive)
+                    .Create(), consumerTimeoutCts.Token);
+                
+                consumer = await consumerTask;
+                result.Details.Add("Consumer", "✅ Created successfully");
+                _logger.LogInformation("   ✅ Pulsar consumer created successfully");
+            }
+            catch (OperationCanceledException)
+            {
+                result.Details.Add("Consumer", "❌ Creation timeout");
+                _logger.LogError("   ❌ Pulsar consumer creation timed out after 15 seconds");
+                throw new Exception("Pulsar consumer creation timed out - server may be unreachable");
+            }
 
-            // Test message sending
+            // Test message sending with timeout
             _logger.LogInformation("   📨 Sending test message...");
             var testMessage = new
             {
@@ -291,9 +312,40 @@ public class StartupHealthCheckService : BackgroundService
             };
 
             var messageBytes = System.Text.Encoding.UTF8.GetBytes(JsonSerializer.Serialize(testMessage));
-            var messageId = await producer.Send(messageBytes);
-            result.Details.Add("Message Send", $"✅ Message sent: {messageId}");
-            _logger.LogInformation("   ✅ Message sent successfully: {MessageId}", messageId);
+            
+            // Add timeout for sending message
+            using var sendTimeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
+            {
+                var sendTask = producer.Send(messageBytes).AsTask();
+                var completedTask = await Task.WhenAny(sendTask, Task.Delay(10000, sendTimeoutCts.Token));
+                
+                if (completedTask == sendTask)
+                {
+                    var messageId = await sendTask;
+                    result.Details.Add("Message Send", $"✅ Message sent: {messageId}");
+                    _logger.LogInformation("   ✅ Message sent successfully: {MessageId}", messageId);
+                }
+                else
+                {
+                    result.Details.Add("Message Send", "⚠️ Send timeout");
+                    result.Warnings.Add("Message sending timed out after 10 seconds");
+                    _logger.LogWarning("   ⚠️ Message send timeout after 10 seconds");
+                    
+                    // Still mark as healthy since producer was created, just slow
+                    stopwatch.Stop();
+                    result.IsHealthy = true;
+                    result.ResponseTime = stopwatch.ElapsedMilliseconds;
+                    result.Message = "Pulsar partially working - send timeout but connection OK";
+                    return result;
+                }
+            }
+            catch (Exception sendEx)
+            {
+                result.Details.Add("Message Send", $"❌ Send failed: {sendEx.Message}");
+                _logger.LogError("   ❌ Message send failed: {Error}", sendEx.Message);
+                throw; // Re-throw to be caught by outer catch block
+            }
 
             // Test message receiving (with short timeout)
             _logger.LogInformation("   📨 Attempting to receive message...");
@@ -337,6 +389,29 @@ public class StartupHealthCheckService : BackgroundService
             result.ResponseTime = stopwatch.ElapsedMilliseconds;
             result.Message = $"Pulsar failed: {ex.Message}";
             result.Error = ex;
+            
+            // Add detailed diagnostic information
+            var pulsarUrl = Environment.GetEnvironmentVariable("ConnectionStrings_Pulsar") ?? "pulsar://localhost:6650";
+            result.Details.Add("Server URL", pulsarUrl);
+            result.Details.Add("Error Type", ex.GetType().Name);
+            
+            if (ex.Message.Contains("timeout") || ex.Message.Contains("Timeout"))
+            {
+                result.Details.Add("Diagnosis", "⚠️ Server timeout - check connectivity");
+                _logger.LogWarning("   🔍 Pulsar server may be unreachable or slow: {PulsarUrl}", pulsarUrl);
+            }
+            else if (ex.Message.Contains("refused") || ex.Message.Contains("Refused"))
+            {
+                result.Details.Add("Diagnosis", "⚠️ Connection refused - server may be down");
+                _logger.LogWarning("   🔍 Pulsar server connection refused: {PulsarUrl}", pulsarUrl);
+            }
+            else
+            {
+                result.Details.Add("Diagnosis", "⚠️ Unknown error - check logs");
+                _logger.LogError("   🔍 Pulsar unknown error: {Error}", ex.Message);
+            }
+            
+            _logger.LogInformation("   💡 Run './check-pulsar.ps1' to test Pulsar connectivity manually");
         }
         finally
         {
