@@ -26,7 +26,8 @@ public class ApplicationDbContext : DbContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Board)
                 .IsRequired()
-                .HasMaxLength(9); // Exactly 9 characters for tic-tac-toe board
+                .HasMaxLength(9)
+                .IsFixedLength(true); // Force fixed length to preserve spaces
             entity.Property(e => e.Status).IsRequired();
             entity.Property(e => e.CurrentPlayerSymbol).IsRequired();
             entity.Property(e => e.PlayerId).IsRequired();
