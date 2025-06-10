@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ArenaGaming.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20250610055613_AddConcurrencyControl")]
-    partial class AddConcurrencyControl
+    [Migration("20250610140540_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -31,9 +31,11 @@ namespace ArenaGaming.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.PrimitiveCollection<char[]>("Board")
+                    b.Property<string>("Board")
                         .IsRequired()
-                        .HasColumnType("character(1)[]");
+                        .HasMaxLength(9)
+                        .HasColumnType("character(9)")
+                        .IsFixedLength();
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
