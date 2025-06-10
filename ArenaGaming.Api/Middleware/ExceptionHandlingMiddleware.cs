@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Net;
 using System.Text.Json;
@@ -72,6 +73,13 @@ public class ExceptionHandlingMiddleware
                 details = exception.Message,
                 statusCode = (int)HttpStatusCode.RequestTimeout
             },
+            DbUpdateConcurrencyException => new
+            {
+                error = "Concurrency conflict",
+                message = "The resource was modified by another operation. Please retry your request.",
+                details = exception.Message,
+                statusCode = (int)HttpStatusCode.Conflict
+            },
             _ => new
             {
                 error = "Internal server error",
@@ -104,6 +112,11 @@ public class ExceptionHandlingMiddleware
         if (message.Contains("database") || message.Contains("sql") || message.Contains("npgsql"))
         {
             return "There is a problem with the database. Verify that the database is available and properly configured.";
+        }
+
+        if (message.Contains("concurrency") || message.Contains("expected to affect 1 row"))
+        {
+            return "The operation failed due to a data conflict. Please retry your request.";
         }
 
         if (message.Contains("redis") || message.Contains("cache"))

@@ -116,14 +116,23 @@ public class SessionService
             await _gameRepository.AddAsync(game, cancellationToken);
             Console.WriteLine($"[StartNewGameAsync] Game saved to repository");
 
-            session.CurrentGameId = game.Id;
-            await _sessionRepository.UpdateAsync(session, cancellationToken);
+            // Reload session from database to avoid concurrency issues
+            Console.WriteLine($"[StartNewGameAsync] Reloading session from database to avoid concurrency conflicts");
+            var freshSession = await _sessionRepository.GetByIdAsync(sessionId, cancellationToken);
+            if (freshSession == null)
+            {
+                Console.WriteLine($"[StartNewGameAsync] Session disappeared during game creation: {sessionId}");
+                throw new InvalidOperationException($"Session no longer exists: {sessionId}");
+            }
+
+            freshSession.CurrentGameId = game.Id;
+            await _sessionRepository.UpdateAsync(freshSession, cancellationToken);
             Console.WriteLine($"[StartNewGameAsync] Session updated with CurrentGameId: {game.Id}");
 
-            // Update cache
+            // Update cache with the fresh session
             try
             {
-                await _cacheService.SetAsync($"session:{sessionId}", session, TimeSpan.FromHours(1), cancellationToken);
+                await _cacheService.SetAsync($"session:{sessionId}", freshSession, TimeSpan.FromHours(1), cancellationToken);
                 await _cacheService.SetAsync($"game:{game.Id}", game, TimeSpan.FromMinutes(30), cancellationToken);
                 Console.WriteLine($"[StartNewGameAsync] Cache updated");
             }
@@ -136,7 +145,7 @@ public class SessionService
             // Publish game started event
             try
             {
-                var gameStartedEvent = new GameStartedEvent(game.Id, session.PlayerId);
+                var gameStartedEvent = new GameStartedEvent(game.Id, freshSession.PlayerId);
                 await _eventPublisher.PublishAsync(gameStartedEvent, "game-started", cancellationToken);
                 Console.WriteLine($"[StartNewGameAsync] 'game-started' event published");
             }
