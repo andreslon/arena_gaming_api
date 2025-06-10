@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using ArenaGaming.Api.Configuration;
+using ArenaGaming.Api.Middleware;
 using ArenaGaming.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
@@ -46,6 +47,10 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Add exception handling middleware
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+
 app.UseCors("AllowAll");
 app.UseAuthorization();
 app.MapControllers();

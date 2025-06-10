@@ -37,29 +37,23 @@ public class SessionsController : ControllerBase
     [HttpPost("{id}/init-game")]
     public async Task<IActionResult> InitGame(Guid id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var game = await _sessionService.StartNewGameAsync(id, cancellationToken);
-            return Ok(game);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(ex.Message);
-        }
+        var game = await _sessionService.StartNewGameAsync(id, cancellationToken);
+        return Ok(new { 
+            success = true, 
+            message = "Juego iniciado exitosamente",
+            data = game 
+        });
     }
 
     [HttpPost("{id}/ai-move")]
     public async Task<IActionResult> MakeAiMove(Guid id, CancellationToken cancellationToken)
     {
-        try
-        {
-            var game = await _sessionService.MakeAiMoveAsync(id, cancellationToken);
-            return Ok(game);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(ex.Message);
-        }
+        var game = await _sessionService.MakeAiMoveAsync(id, cancellationToken);
+        return Ok(new { 
+            success = true, 
+            message = "Movimiento de IA realizado exitosamente",
+            data = game 
+        });
     }
 }
 
