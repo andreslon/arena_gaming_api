@@ -36,7 +36,8 @@ public static class DependencyInjection
         services.AddScoped<IMoveRepository, MoveRepository>();
 
         // Add Services
-        services.AddHttpClient<IGeminiService, GeminiService>();
+        services.AddHttpClient<GeminiService>();
+        services.AddScoped<IGeminiService, GeminiService>();
         services.AddScoped<ICacheService, RedisCacheService>();
 
         // Add application services
