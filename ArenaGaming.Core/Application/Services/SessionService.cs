@@ -181,7 +181,7 @@ public class SessionService
             throw new ArgumentException("Game not found", nameof(session.CurrentGameId));
 
         // Get AI move
-        var aiPosition = await _geminiService.GetNextMoveAsync(new string(game.Board), game.CurrentPlayerSymbol, cancellationToken);
+        var aiPosition = await _geminiService.SuggestMoveAsync(game);
         
         // Make the move
         game.MakeMove(aiPosition, null); // null indicates AI player

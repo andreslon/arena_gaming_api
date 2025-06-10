@@ -97,4 +97,4 @@ try {
 
 Write-Host ""
 Write-Host "🏁 REDIS TIC-TAC-TOE TEST COMPLETE!" -ForegroundColor Green
-Write-Host "===============================================" -ForegroundColor Yellow 
+Write-Host "===============================================" -ForegroundColor Yellow

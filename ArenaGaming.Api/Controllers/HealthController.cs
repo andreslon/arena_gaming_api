@@ -294,9 +294,9 @@ public class HealthController : ControllerBase
 
         try
         {
-            // Simple test - try to get a move from Gemini
-            var testBoard = "         "; // Empty board
-            var move = await _geminiService.GetNextMoveAsync(testBoard, 'O');
+            // Create a test game for health check
+            var testGame = new ArenaGaming.Core.Domain.Game(Guid.NewGuid());
+            var move = await _geminiService.SuggestMoveAsync(testGame);
             
             stopwatch.Stop();
             
@@ -306,7 +306,7 @@ public class HealthController : ControllerBase
                 healthCheck.Message = "Gemini AI service is responding";
                 healthCheck.Details = new Dictionary<string, object>
                 {
-                    ["TestBoard"] = testBoard,
+                    ["TestBoard"] = testGame.Board,
                     ["ResponseReceived"] = true,
                     ["MovePosition"] = move,
                     ["ResponseTimeMs"] = stopwatch.ElapsedMilliseconds
@@ -318,7 +318,7 @@ public class HealthController : ControllerBase
                 healthCheck.Message = "Gemini AI service returned invalid move";
                 healthCheck.Details = new Dictionary<string, object>
                 {
-                    ["TestBoard"] = testBoard,
+                    ["TestBoard"] = testGame.Board,
                     ["ResponseReceived"] = true,
                     ["InvalidMove"] = move,
                     ["ResponseTimeMs"] = stopwatch.ElapsedMilliseconds
