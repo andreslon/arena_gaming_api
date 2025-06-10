@@ -191,7 +191,7 @@ public class SessionService
         await _cacheService.SetAsync($"game:{game.Id}", game, TimeSpan.FromMinutes(30), cancellationToken);
 
         // Publish events
-        var moveEvent = new MoveMadeEvent(game.Id, Guid.Empty, aiPosition, new string(game.Board));
+        var moveEvent = new MoveMadeEvent(game.Id, Guid.Empty, aiPosition, game.Board);
         await _eventPublisher.PublishAsync(moveEvent, "move-made", cancellationToken);
 
         var geminiEvent = new GeminiMoveEvent(sessionId, aiPosition, "AI move made");
